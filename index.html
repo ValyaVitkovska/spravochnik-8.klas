@@ -1858,8 +1858,8 @@ const THEMES = [
     c1:'#14b8a6', c2:'#2dd4bf', cd:'#0f766e', soft:'#e4fbf7',
     glyph:`<svg viewBox="0 0 100 100"><defs><marker id="gv" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#fff"/></marker></defs><line x1="16" y1="80" x2="82" y2="22" stroke="#fff" stroke-width="6" marker-end="url(#gv)"/></svg>`,
     cards:[
-        {t:'note', h:'Какво е вектор', b:`Отсечка, на която единият край е приет за <b>първи</b>, а другият — за <b>втори</b>, се нарича <span class="hl">насочена отсечка (вектор)</span> $\\vec{AB}$.<br>Елементи: <b>начало</b> $A$, <b>край</b> $B$, <b>дължина</b> $|\\vec{AB}|$ и <b>посока</b> (от $A$ към $B$).`},
-        {t:'fig_dyn', cap:'Премести точките A и B, за да промениш вектора $\\vec{AB}$.', 
+        {t:'note', h:'Какво е вектор', b:`Отсечка, на която единият край е приет за <b>първи</b>, а другият — за <b>втори</b>, се нарича <span class="hl">насочена отсечка (вектор)</span> $\\overrightarrow{AB}$.<br>Елементи: <b>начало</b> $A$, <b>край</b> $B$, <b>дължина</b> $|\\overrightarrow{AB}|$ и <b>посока</b> (от $A$ към $B$).`},
+        {t:'fig_dyn', cap:'Премести точките A и B, за да промениш вектора $\\overrightarrow{AB}$.', 
          state: { ax: 80, ay: 120, bx: 200, by: 60 },
          handles: s => [{ id: 'A', x: s.ax, y: s.ay }, { id: 'B', x: s.bx, y: s.by }],
          update: (s, id, x, y) => {
@@ -2043,11 +2043,11 @@ const THEMES = [
              return svg;
          }
         },
-        {t:'note', h:'Векторно равенство и среда на отсечка', b:`За всеки две точки $A$ и $B$ и произволна точка $O$ е в сила:<br>$\\vec{AB} = \\vec{OB} - \\vec{OA}$<br><br>Ако $M$ е средата на отсечката $AB$, то за произволна точка $O$ е в сила:<br>$\\vec{OM} = \\dfrac{1}{2}(\\vec{OA} + \\vec{OB})$`},
+        {t:'note', h:'Векторно равенство и среда на отсечка', b:`За всеки две точки $A$ и $B$ и произволна точка $O$ е в сила:<br>$\\overrightarrow{AB} = \\overrightarrow{OB} - \\overrightarrow{OA}$<br><br>Ако $M$ е средата на отсечката $AB$, то за произволна точка $O$ е в сила:<br>$\\overrightarrow{OM} = \\dfrac{1}{2}(\\overrightarrow{OA} + \\overrightarrow{OB})$`},
         {t:'form', items:[
-            {l:'Сбор (триъгълник)', tex:'\\vec{AB}+\\vec{BC}=\\vec{AC}'},
-            {l:'Разлика', tex:'\\vec{AB}=\\vec{OB}-\\vec{OA}'},
-            {l:'Среда на отсечка', tex:'\\vec{OM}=\\dfrac{1}{2}(\\vec{OA}+\\vec{OB})'},
+            {l:'Сбор (триъгълник)', tex:'\\overrightarrow{AB}+\\overrightarrow{BC}=\\overrightarrow{AC}'},
+            {l:'Разлика', tex:'\\overrightarrow{AB}=\\overrightarrow{OB}-\\overrightarrow{OA}'},
+            {l:'Среда на отсечка', tex:'\\overrightarrow{OM}=\\dfrac{1}{2}(\\overrightarrow{OA}+\\overrightarrow{OB})'},
         ]},
         {t:'quiz', q:'По правилото на успоредника сборът на два вектора с общо начало е:', opts:['едно от бедрата','диагоналът на успоредника','по-малката страна','нулевият вектор'], ok:1, ex:'Сборът е диагоналът, излизащ от общото начало.'},
         {t:'quiz', q:'Векторът $-3\\vec{a}$ спрямо $\\vec{a}$ е:', opts:['същата посока, $3$ пъти по-дълъг','противоположна посока, $3$ пъти по-дълъг','същата посока, $3$ пъти по-къс','равен на $\\vec{a}$'], ok:1, ex:'Отрицателно число обръща посоката; дължината е $|-3|\\cdot|\\vec a|=3|\\vec a|$.'},
