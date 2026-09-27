@@ -1478,6 +1478,64 @@ function arcTex(name, value){
 }
 function degText(v){ return `${Math.round(v)}°`; }
 function angBetween(a,b){ let d=Math.abs(normAng(a)-normAng(b)); if(d>Math.PI) d=2*Math.PI-d; return d; }
+function orthocenterOf(ax,ay,bx,by,cx,cy){
+    const area=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
+    const ab=Math.hypot(bx-ax,by-ay), bc=Math.hypot(cx-bx,cy-by), ca=Math.hypot(ax-cx,ay-cy);
+    const longest=Math.max(ab,bc,ca);
+    if(longest<1e-6 || Math.abs(area)/longest<0.5) return null;
+    const bcx=cx-bx, bcy=cy-by, acx=cx-ax, acy=cy-ay;
+    const d1x=-bcy, d1y=bcx, d2x=-acy, d2y=acx;
+    const den=d1x*d2y-d1y*d2x;
+    if(Math.abs(den)<1e-8) return null;
+    const t=((bx-ax)*d2y-(by-ay)*d2x)/den;
+    const x=ax+t*d1x, y=ay+t*d1y;
+    if(!Number.isFinite(x)||!Number.isFinite(y)) return null;
+    return {x,y};
+}
+function orthoFit(s){
+    const H=orthocenterOf(s.ax,s.ay,s.bx,s.by,s.cx,s.cy);
+    const pts=[{x:s.ax,y:s.ay},{x:s.bx,y:s.by},{x:s.cx,y:s.cy}];
+    if(H) pts.push(H);
+    const minX=Math.min(...pts.map(p=>p.x)), maxX=Math.max(...pts.map(p=>p.x));
+    const minY=Math.min(...pts.map(p=>p.y)), maxY=Math.max(...pts.map(p=>p.y));
+    const lo=6, hiX=294, hiY=174;
+    if(minX>=lo && maxX<=hiX && minY>=lo && maxY<=hiY) return {H,X:v=>v,Y:v=>v,invX:v=>v,invY:v=>v};
+    const k=Math.min((hiX-lo)/Math.max(maxX-minX,1),(hiY-lo)/Math.max(maxY-minY,1));
+    return {H, X:v=>lo+(v-minX)*k, Y:v=>lo+(v-minY)*k, invX:v=>minX+(v-lo)/k, invY:v=>minY+(v-lo)/k};
+}
+function circlesAt(d,r1,r2){
+    const eps=1e-4;
+    if(d<=eps){
+        if(Math.abs(r1-r2)<=eps) return {same:true, text:'окръжностите съвпадат'};
+        return {same:true, text:'концентрични окръжности без общи точки'};
+    }
+    const sum=r1+r2, diff=Math.abs(r1-r2);
+    if(Math.abs(d-sum)<3) return {same:false, text:'допират се външно'};
+    if(d>sum) return {same:false, text:'нямат общи точки, всяка е вън от другата'};
+    if(Math.abs(d-diff)<3) return {same:false, text:'допират се вътрешно'};
+    if(d<diff) return {same:false, text:'по-малката е във вътрешността на по-голямата, без допиране'};
+    return {same:false, text:'пресичат се в две точки'};
+}
+function extDivView(s){
+    const y=86, L=s.bx-s.ax, cx=s.ax+L*s.m/(s.m-s.n);
+    const minX=Math.min(s.ax,s.bx,cx), maxX=Math.max(s.ax,s.bx,cx);
+    const inside=s.ax>=28 && s.bx<=272 && cx>=28 && cx<=272;
+    if(inside) return {y,cx,Ax:s.ax,Bx:s.bx,Cx:cx,inv:v=>v};
+    const k=(272-28)/Math.max(maxX-minX,1);
+    const X=v=>28+(v-minX)*k;
+    return {y,cx,Ax:X(s.ax),Bx:X(s.bx),Cx:X(cx),inv:v=>minX+(v-28)/k};
+}
+function trapBasis(s){
+    let dx=s.bx-s.ax, dy=s.by-s.ay, len=Math.hypot(dx,dy);
+    if(len<1){ dx=1; dy=0; len=1; }
+    return {ux:dx/len, uy:dy/len, nx:dy/len, ny:-dx/len, len};
+}
+function trapPts(s){
+    const f=trapBasis(s);
+    const D={x:s.ax+s.tD*f.ux+s.h*f.nx, y:s.ay+s.tD*f.uy+s.h*f.ny};
+    const C={x:s.ax+s.tC*f.ux+s.h*f.nx, y:s.ay+s.tC*f.uy+s.h*f.ny};
+    return {A:{x:s.ax,y:s.ay}, B:{x:s.bx,y:s.by}, C, D, f};
+}
 function degMath(v){ return `${Math.round(v)}^\\circ`; }
 function eqLine(left, right){ return `${left} = ${right}`; }
 function extendLine(x1,y1,x2,y2,ext=28,color='#94a3b8'){
@@ -2022,22 +2080,22 @@ const THEMES = [
         {t:'note', h:'Външно деление на отсечка', b:`Точка $C$ от правата $AB$, която е <b>извън</b> отсечката $AB$, дели отсечката външно в отношение $AC:CB=m:n$ $(m\\gt n)$.<br>Ако $C$ е от страната на $B$, тогава $AC=\\dfrac{m}{m-n}\\cdot AB$, а $CB=\\dfrac{n}{m-n}\\cdot AB$.`},
         {t:'fig_dyn', cap:'Външно деление на отсечка. Премести A, B или промени m и n.',
          state:{ ax:55, bx:145, m:3, n:1 },
-         handles:s=>[{id:'A',x:s.ax,y:86},{id:'B',x:s.bx,y:86},{id:'M',x:60+s.m*16,y:145},{id:'N',x:180+s.n*16,y:145}],
+         handles:s=>{ const v=extDivView(s); return [{id:'A',x:v.Ax,y:v.y},{id:'B',x:v.Bx,y:v.y},{id:'M',x:60+s.m*16,y:145},{id:'N',x:180+s.n*16,y:145}]; },
          update:(s,id,x,y)=>{
-             if(id==='A') s.ax = Math.min(clamp(x,25,125), s.bx-35);
-             if(id==='B') s.bx = Math.max(clamp(x,85,205), s.ax+35);
+             if(id==='A'){ const logical=extDivView(s).inv(x); s.ax=Math.min(logical, s.bx-35); }
+             if(id==='B'){ const logical=extDivView(s).inv(x); s.bx=Math.max(logical, s.ax+35); }
              if(id==='M') s.m = clamp(Math.round((x-60)/16),2,6);
              if(id==='N') s.n = clamp(Math.round((x-180)/16),1,Math.max(1,s.m-1));
              if(s.n>=s.m) s.n=s.m-1;
          },
          draw:s=>{
-             const y=86, L=s.bx-s.ax, cx=s.ax + L*s.m/(s.m-s.n), cvis=clamp(cx,25,285);
+             const v=extDivView(s), y=v.y;
              let svg=`<line x1="25" y1="${y}" x2="280" y2="${y}" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="5 5"/>`;
-             svg+=`<line class="gg-main" x1="${s.ax}" y1="${y}" x2="${s.bx}" y2="${y}" stroke="var(--accent)"/>`;
-             svg+=`<line class="gg-main" x1="${s.bx}" y1="${y}" x2="${cvis}" y2="${y}" stroke="var(--accent-d)" stroke-dasharray="4 4"/>`;
-             svg+=ctrlPoint(s.ax,y,'A','#1e293b')+ctrlPoint(s.bx,y,'B','#1e293b')+plainPoint(cvis,y,'var(--accent-d)',4);
-             svg+=tinyLabel('A',s.ax,y+23,'#111827')+tinyLabel('B',s.bx,y+23,'#111827')+`<text x="${cvis}" y="${y-17}" font-size="13" fill="var(--accent-d)" font-weight="700" text-anchor="middle">C</text>`;
-             svg+=`<text x="${(s.ax+cvis)/2}" y="${y-20}" font-size="10" fill="#475569" text-anchor="middle">AC</text><text x="${(s.bx+cvis)/2}" y="${y+21}" font-size="10" fill="#475569" text-anchor="middle">CB</text>`;
+             svg+=`<line class="gg-main" x1="${v.Ax}" y1="${y}" x2="${v.Bx}" y2="${y}" stroke="var(--accent)"/>`;
+             svg+=`<line class="gg-main" x1="${v.Bx}" y1="${y}" x2="${v.Cx}" y2="${y}" stroke="var(--accent-d)" stroke-dasharray="4 4"/>`;
+             svg+=ctrlPoint(v.Ax,y,'A','#1e293b')+ctrlPoint(v.Bx,y,'B','#1e293b')+plainPoint(v.Cx,y,'var(--accent-d)',4);
+             svg+=tinyLabel('A',v.Ax,y+23,'#111827')+tinyLabel('B',v.Bx,y+23,'#111827')+`<text x="${v.Cx}" y="${y-17}" font-size="13" fill="var(--accent-d)" font-weight="700" text-anchor="middle">C</text>`;
+             svg+=`<text x="${(v.Ax+v.Cx)/2}" y="${y-20}" font-size="10" fill="#475569" text-anchor="middle">AC</text><text x="${(v.Bx+v.Cx)/2}" y="${y+21}" font-size="10" fill="#475569" text-anchor="middle">CB</text>`;
              svg+=`<line x1="92" y1="145" x2="156" y2="145" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>`;
              svg+=`<line x1="196" y1="145" x2="276" y2="145" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>`;
              svg+=`<text x="124" y="132" font-size="10" fill="#64748b" text-anchor="middle">m = ${s.m}</text><text x="236" y="132" font-size="10" fill="#64748b" text-anchor="middle">n = ${s.n}</text>`;
@@ -2092,30 +2150,48 @@ const THEMES = [
         },
         {t:'note', h:'Трапец', b:`<b>О:</b> Четириъгълник, на който две от страните са успоредни, а другите две не са успоредни, се нарича <span class="hl">трапец</span>.<br>• <b>О:</b> Успоредните страни са <b>основи</b>, а другите две — <b>бедра</b>.<br>• <b>О:</b> Средна отсечка в трапец е отсечката, която съединява средите на бедрата.<br>• <b>Т:</b> Средната отсечка е успоредна на основите и $m=\\dfrac{a+b}{2}$.<br>• <b>Т:</b> Права през средата на бедро, успоредна на основите, разполовява другото бедро.`},
         {t:'note', h:'Равнобедрен трапец', b:`<b>О:</b> Трапец, на който бедрата са равни, се нарича <span class="hl">равнобедрен трапец</span>.<br>• <b>С:</b> Ъглите при всяка основа са равни.<br>• <b>С:</b> Диагоналите са равни.<br>• <b>П:</b> Ако ъглите при една основа на трапец са равни, то трапецът е равнобедрен.<br>• <b>П:</b> Ако диагоналите на трапец са равни, то трапецът е равнобедрен.`},
-        {t:'note', h:'Средна отсечка и диагонали в трапец', b:`• <b>Т:</b> Средната отсечка на трапец се пресича от диагоналите в техните среди.<br>• <b>С:</b> Ако основите са $a$ и $b$ $(a\\gt b)$, върху средната отсечка се получават отсечки $\\dfrac{b}{2}$, $\\dfrac{a-b}{2}$ и $\\dfrac{b}{2}$.<br>• <b>С:</b> Отсечката между средите на диагоналите е $\\dfrac{a-b}{2}$.`},
+        {t:'note', h:'Средна отсечка и диагонали в трапец', b:`• <b>Т:</b> Средната отсечка на трапец се пресича от диагоналите в техните среди.<br>• <b>С:</b> Ако основите са $a$ и $b$ и $m$ е по-малката от тях, върху средната отсечка се получават отсечки $\\dfrac{m}{2}$, $\\dfrac{|a-b|}{2}$ и $\\dfrac{m}{2}$.<br>• <b>С:</b> Отсечката между средите на диагоналите е $\\dfrac{|a-b|}{2}$.`},
         {t:'fig_dyn', cap:'Трапец със средна отсечка и диагонали. Премести A, B, C или D.',
-         state:{ ax:35, ay:152, bx:270, by:152, dx:82, dy:54, cx:220, cy:54 },
-         handles:s=>[{id:'A',x:s.ax,y:s.ay},{id:'B',x:s.bx,y:s.by},{id:'D',x:s.dx,y:s.dy},{id:'C',x:s.cx,y:s.cy}],
-         update:(s,id,x,y)=>{ x=clamp(x,18,282); y=clamp(y,25,165); if(id==='A'){s.ax=x;s.ay=y;} if(id==='B'){s.bx=x;s.by=y;} if(id==='D'){s.dx=x;s.dy=y;} if(id==='C'){s.cx=x;s.cy=y;} },
+         state:{ ax:35, ay:152, bx:270, by:152, tD:47, tC:185, h:98 },
+         handles:s=>{ const p=trapPts(s); return [{id:'A',x:p.A.x,y:p.A.y},{id:'B',x:p.B.x,y:p.B.y},{id:'D',x:p.D.x,y:p.D.y},{id:'C',x:p.C.x,y:p.C.y}]; },
+         update:(s,id,x,y)=>{
+             x=clamp(x,18,282); y=clamp(y,25,165);
+             if(id==='A'){s.ax=x;s.ay=y;}
+             if(id==='B'){s.bx=x;s.by=y;}
+             if(id==='A'||id==='B'){
+                 let dx=s.bx-s.ax, dy=s.by-s.ay, len=Math.hypot(dx,dy);
+                 if(len<48){ if(len<1){dx=1;dy=0;len=1;} const k=48/len; if(id==='A'){s.ax=s.bx-dx*k;s.ay=s.by-dy*k;} else {s.bx=s.ax+dx*k;s.by=s.ay+dy*k;} }
+                 return;
+             }
+             const f=trapBasis(s);
+             const vx=x-s.ax, vy=y-s.ay;
+             let t=vx*f.ux+vy*f.uy, h=vx*f.nx+vy*f.ny;
+             if(Math.abs(h)<18) h=h<0?-18:18;
+             if(id==='D') s.tD=Math.min(t, s.tC-24);
+             if(id==='C') s.tC=Math.max(t, s.tD+24);
+             s.h=h;
+         },
          draw:s=>{
-             const m={x:(s.ax+s.dx)/2,y:(s.ay+s.dy)/2}, n={x:(s.bx+s.cx)/2,y:(s.by+s.cy)/2};
-             const p={x:(s.ax+s.cx)/2,y:(s.ay+s.cy)/2}, q={x:(s.bx+s.dx)/2,y:(s.by+s.dy)/2};
-             let pts=[m,p,q,n].sort((u,v)=>u.x-v.x);
-             let svg=`<polygon points="${s.ax},${s.ay} ${s.bx},${s.by} ${s.cx},${s.cy} ${s.dx},${s.dy}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>`;
-             svg+=lenLabel('',s.ax,s.ay,s.bx,s.by,'#475569',14)+lenLabel('',s.dx,s.dy,s.cx,s.cy,'#475569',-7);
-             svg+=`<line x1="${s.ax}" y1="${s.ay}" x2="${s.cx}" y2="${s.cy}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 4"/>`;
-             svg+=`<line x1="${s.bx}" y1="${s.by}" x2="${s.dx}" y2="${s.dy}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 4"/>`;
+             const g=trapPts(s), A=g.A, B=g.B, C=g.C, D=g.D;
+             const m={x:(A.x+D.x)/2,y:(A.y+D.y)/2}, n={x:(B.x+C.x)/2,y:(B.y+C.y)/2};
+             const p={x:(A.x+C.x)/2,y:(A.y+C.y)/2}, q={x:(B.x+D.x)/2,y:(B.y+D.y)/2};
+             const along=(u,v)=> (u.x-m.x)*(n.x-m.x)+(u.y-m.y)*(n.y-m.y);
+             let pts=[m,p,q,n].sort((u,v)=>along(u)-along(v));
+             let svg=`<polygon points="${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>`;
+             svg+=lenLabel('',A.x,A.y,B.x,B.y,'#475569',14)+lenLabel('',D.x,D.y,C.x,C.y,'#475569',-7);
+             svg+=`<line x1="${A.x}" y1="${A.y}" x2="${C.x}" y2="${C.y}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 4"/>`;
+             svg+=`<line x1="${B.x}" y1="${B.y}" x2="${D.x}" y2="${D.y}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 4"/>`;
              svg+=`<line x1="${m.x}" y1="${m.y}" x2="${n.x}" y2="${n.y}" stroke="var(--accent-d)" stroke-width="2.8"/>`;
              for(let i=0;i<pts.length-1;i++) svg+=lenLabel('',pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,'#475569',-7);
              svg+=plainPoint(m.x,m.y,'var(--accent-d)',3.2)+plainPoint(n.x,n.y,'var(--accent-d)',3.2)+plainPoint(p.x,p.y,'#be185d',3.2)+plainPoint(q.x,q.y,'#be185d',3.2);
              svg+=tinyLabel('M',m.x-10,m.y+12,'var(--accent-d)')+tinyLabel('N',n.x+10,n.y+12,'var(--accent-d)')+tinyLabel('P',p.x-8,p.y-8,'#be185d')+tinyLabel('Q',q.x+8,q.y-8,'#be185d');
-             svg+=ctrlPoint(s.ax,s.ay,'A')+tinyLabel('A',s.ax-12,s.ay+14,'#334155');
-             svg+=ctrlPoint(s.bx,s.by,'B')+tinyLabel('B',s.bx+12,s.by+14,'#334155');
-             svg+=ctrlPoint(s.cx,s.cy,'C')+tinyLabel('C',s.cx+12,s.cy-8,'#334155');
-             svg+=ctrlPoint(s.dx,s.dy,'D')+tinyLabel('D',s.dx-12,s.dy-8,'#334155');
+             svg+=ctrlPoint(A.x,A.y,'A')+tinyLabel('A',A.x-12,A.y+14,'#334155');
+             svg+=ctrlPoint(B.x,B.y,'B')+tinyLabel('B',B.x+12,B.y+14,'#334155');
+             svg+=ctrlPoint(C.x,C.y,'C')+tinyLabel('C',C.x+12,C.y-8,'#334155');
+             svg+=ctrlPoint(D.x,D.y,'D')+tinyLabel('D',D.x-12,D.y-8,'#334155');
              return svg;
          },
-         info:s=>{ const m={x:(s.ax+s.dx)/2,y:(s.ay+s.dy)/2}, n={x:(s.bx+s.cx)/2,y:(s.by+s.cy)/2}, p={x:(s.ax+s.cx)/2,y:(s.ay+s.cy)/2}, q={x:(s.bx+s.dx)/2,y:(s.by+s.dy)/2}; let pts=[m,p,q,n].sort((u,v)=>u.x-v.x); const ab=fmtLen(pxDist(s.ax,s.ay,s.bx,s.by)), cd=fmtLen(pxDist(s.dx,s.dy,s.cx,s.cy)), mn=fmtLen(pxDist(m.x,m.y,n.x,n.y)); const s1=fmtLen(pxDist(pts[0].x,pts[0].y,pts[1].x,pts[1].y)), s2=fmtLen(pxDist(pts[1].x,pts[1].y,pts[2].x,pts[2].y)), s3=fmtLen(pxDist(pts[2].x,pts[2].y,pts[3].x,pts[3].y)); return [`AB = ${ab}; CD = ${cd}; MN = ${mn}`, `${s1}; ${s2}; ${s3}`, `$MN = \\dfrac{AB + CD}{2}$`, `$\\dfrac{CD}{2};\; \\dfrac{AB - CD}{2};\; \\dfrac{CD}{2}$`]; }
+         info:s=>{ const g=trapPts(s), A=g.A, B=g.B, C=g.C, D=g.D; const m={x:(A.x+D.x)/2,y:(A.y+D.y)/2}, n={x:(B.x+C.x)/2,y:(B.y+C.y)/2}, p={x:(A.x+C.x)/2,y:(A.y+C.y)/2}, q={x:(B.x+D.x)/2,y:(B.y+D.y)/2}; const along=(u)=> (u.x-m.x)*(n.x-m.x)+(u.y-m.y)*(n.y-m.y); let pts=[m,p,q,n].sort((u,v)=>along(u)-along(v)); const ab=pxDist(A.x,A.y,B.x,B.y), cd=pxDist(D.x,D.y,C.x,C.y); const s1=fmtLen(pxDist(pts[0].x,pts[0].y,pts[1].x,pts[1].y)), s2=fmtLen(pxDist(pts[1].x,pts[1].y,pts[2].x,pts[2].y)), s3=fmtLen(pxDist(pts[2].x,pts[2].y,pts[3].x,pts[3].y)); return [`AB ∥ CD`, `AB = ${fmtLen(ab)}; CD = ${fmtLen(cd)}; MN = ${fmtLen(pxDist(m.x,m.y,n.x,n.y))}`, `${s1}; ${s2}; ${s3}`, `$\\dfrac{|AB-CD|}{2} = ${fmtLen(Math.abs(ab-cd)/2)}$`]; }
         },
         {t:'note', h:'Равнобедрен трапец с височина', b:`• <b>С:</b> В равнобедрен трапец бедрата са равни и ъглите при всяка основа са равни.<br>• <b>Т:</b> Ако $DH$ и $CK$ са височини към голямата основа $AB=a$, а малката основа е $CD=b$, то двете издатини са равни: $AH=KB=\\dfrac{a-b}{2}$.`},
         {t:'fig_dyn', cap:'Равнобедрен трапец с височина към голямата основа. Премести A, B или горната основа.',
@@ -2186,15 +2262,15 @@ const THEMES = [
             {l:'Квадратен корен от произведение', tex:'\\sqrt{a\\cdot b}=\\sqrt{a}\\cdot\\sqrt{b}\\quad (a\\ge 0,\\ b\\ge 0)'},
             {l:'Квадратен корен от частно', tex:'\\sqrt{\\dfrac{a}{b}}=\\dfrac{\\sqrt{a}}{\\sqrt{b}}\\quad (a\\ge 0,\\ b>0)'},
         ]},
-        {t:'note', h:'Нормален вид', b:`Един радикал е в <span class="hl">нормален вид</span>, ако подкоренната му величина:<br>• не съдържа знаменател;<br>• няма множители, които могат да се изнесат пред радикала.<br>Изнасяне: $\\sqrt{a^{2}b}=a\\sqrt{b}\\ (a\\ge0)$. Подобни радикали (с еднаква подкоренна величина) се събират като подобни членове.`},
+        {t:'note', h:'Нормален вид', b:`Един радикал е в <span class="hl">нормален вид</span>, ако подкоренната му величина:<br>• не съдържа знаменател;<br>• няма множители, които могат да се изнесат пред радикала.<br>Изнасяне: $\\sqrt{a^{2}b}=|a|\\sqrt{b},\\quad b\\ge 0$.<br>Ако $a\\ge 0$, то $\\sqrt{a^{2}b}=a\\sqrt{b}$.<br>Подобни радикали (с еднаква подкоренна величина) се събират като подобни членове.`},
         {t:'ex', q:'Опрости $\\sqrt{50}+\\sqrt{8}$', steps:[
             '$\\sqrt{50}=\\sqrt{25\\cdot2}=5\\sqrt2$',
             '$\\sqrt{8}=\\sqrt{4\\cdot2}=2\\sqrt2$',
             '$5\\sqrt2+2\\sqrt2=7\\sqrt2$'], ans:'$7\\sqrt2$'},
         {t:'note', h:'Рационализиране на знаменател', b:`Рационализираме, когато премахваме квадратния корен от знаменателя.<br><br>
         <b>1. Едночлен в знаменателя:</b><br>$$\\dfrac{A}{\\sqrt a}=\\dfrac{A\\sqrt a}{a}\\quad(a\\gt0)$$
-        <b>2. Сбор в знаменателя:</b><br>$$\\dfrac{A}{\\sqrt a+\\sqrt b}=\\dfrac{A(\\sqrt a-\\sqrt b)}{a-b}\\quad(a\\ne b)$$
-        <b>3. Разлика в знаменателя:</b><br>$$\\dfrac{A}{\\sqrt a-\\sqrt b}=\\dfrac{A(\\sqrt a+\\sqrt b)}{a-b}\\quad(a\\ne b)$$
+        <b>2. Сбор в знаменателя:</b><br>$$\\dfrac{A}{\\sqrt a+\\sqrt b}=\\dfrac{A(\\sqrt a-\\sqrt b)}{a-b}\\quad(a\\ge 0,\\ b\\ge 0,\\ a\\ne b)$$
+        <b>3. Разлика в знаменателя:</b><br>$$\\dfrac{A}{\\sqrt a-\\sqrt b}=\\dfrac{A(\\sqrt a+\\sqrt b)}{a-b}\\quad(a\\ge 0,\\ b\\ge 0,\\ a\\ne b)$$
         Използваме спрегнати изрази, защото $(\\sqrt a+\\sqrt b)(\\sqrt a-\\sqrt b)=a-b$.`},
         {t:'quiz', q:'Кой е нормалният вид на $\\sqrt{48}$?', opts:['$4\\sqrt3$','$2\\sqrt{12}$','$3\\sqrt4$','$6\\sqrt2$'], ok:0, ex:'$\\sqrt{48}=\\sqrt{16\\cdot3}=4\\sqrt3$.'},
     ]
@@ -2254,15 +2330,15 @@ const THEMES = [
          info:s=>{const r=52,d=Math.abs(s.oy-s.ly); const pos=d<r-3?'правата е секуща':(Math.abs(d-r)<=3?'правата е допирателна':'правата е външна'); return [`d = ${fmtLen(d)}; r = ${fmtLen(r)}`, pos];}
         },
 
-        {t:'note', h:'Взаимно положение на две окръжности', b:`Нека центровете са на разстояние $d$, а радиусите са $r_1$ и $r_2$ $(r_1\\ge r_2)$.<br>• $d\\gt r_1+r_2$ — няма общи точки, всяка е вън от другата;<br>• $d=r_1+r_2$ — допират се външно;<br>• $|r_1-r_2|\\lt d\\lt r_1+r_2$ — пресичат се в две точки;<br>• $d=|r_1-r_2|$ и $d\\gt 0$ — допират се вътрешно;<br>• $0\\lt d\\lt |r_1-r_2|$ — по-малката е във вътрешността на по-голямата, без допиране;<br>• $d=0$ — общ център: <span class="hl">концентрични окръжности</span>.`},
-        {t:'fig_dyn', cap:'Две окръжности. Премести центровете. При общ център са концентрични.',
+        {t:'note', h:'Взаимно положение на две окръжности', b:`Нека центровете са на разстояние $d$, а радиусите са $r_1$ и $r_2$ $(r_1\\ge r_2)$.<br>• $d\\gt r_1+r_2$ — няма общи точки, всяка е вън от другата;<br>• $d=r_1+r_2$ — допират се външно;<br>• $|r_1-r_2|\\lt d\\lt r_1+r_2$ — пресичат се в две точки;<br>• $d=|r_1-r_2|$ и $d\\gt 0$ — допират се вътрешно;<br>• $0\\lt d\\lt |r_1-r_2|$ — по-малката е във вътрешността на по-голямата, без допиране;<br>• $d=0$ и $r_1\\ne r_2$ — концентрични окръжности без общи точки;<br>• $d=0$ и $r_1=r_2$ — окръжностите съвпадат.`},
+        {t:'fig_dyn', cap:'Две окръжности. Премести центровете.',
          state:{ o1x:112,o1y:92,o2x:195,o2y:92 },
          handles:s=>[{id:'O1',x:s.o1x,y:s.o1y},{id:'O2',x:s.o2x,y:s.o2y}],
          update:(s,id,x,y)=>{x=clamp(x,45,255);y=clamp(y,45,140); if(id==='O1'){s.o1x=x;s.o1y=y;} if(id==='O2'){s.o2x=x;s.o2y=y;}},
-         draw:s=>{const r1=48,r2=36,d=pxDist(s.o1x,s.o1y,s.o2x,s.o2y); const same=d<5; let svg=`<circle cx="${s.o1x}" cy="${s.o1y}" r="${r1}" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="${s.o2x}" cy="${s.o2y}" r="${r2}" fill="none" stroke="var(--accent-d)" stroke-width="2"/>`; if(!same){ svg+=`<line x1="${s.o1x}" y1="${s.o1y}" x2="${s.o2x}" y2="${s.o2y}" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4 4"/>`; svg+=tinyLabel(fmtLen(d),(s.o1x+s.o2x)/2,(s.o1y+s.o2y)/2-6,'#475569'); svg+=ctrlPoint(s.o1x,s.o1y,'O1','var(--accent)')+tinyLabel('O₁',s.o1x-14,s.o1y+16,'#334155'); svg+=ctrlPoint(s.o2x,s.o2y,'O2','var(--accent-d)')+tinyLabel('O₂',s.o2x+15,s.o2y+16,'#334155'); } else { svg+=ctrlPoint(s.o1x,s.o1y,'O1','var(--accent-d)')+tinyLabel('O₁≡O₂',s.o1x+14,s.o1y+16,'#334155','start'); } return svg;},
-         info:s=>{const r1=48,r2=36,d=pxDist(s.o1x,s.o1y,s.o2x,s.o2y); if(d<5) return [`d = 0; r₁ = ${fmtLen(r1)}; r₂ = ${fmtLen(r2)}`, `концентрични окръжности`]; let pos='пресичат се в две точки'; if(d>r1+r2) pos='нямат общи точки'; else if(Math.abs(d-(r1+r2))<3) pos='допират се външно'; else if(Math.abs(d-Math.abs(r1-r2))<3) pos='допират се вътрешно'; else if(d<Math.abs(r1-r2)) pos='едната е във вътрешността на другата'; return [`d = ${fmtLen(d)}; r₁+r₂ = ${fmtLen(r1+r2)}; |r₁−r₂| = ${fmtLen(Math.abs(r1-r2))}`, pos];}
+         draw:s=>{const r1=48,r2=36,d=pxDist(s.o1x,s.o1y,s.o2x,s.o2y); const rel=circlesAt(d,r1,r2); let svg=`<circle cx="${s.o1x}" cy="${s.o1y}" r="${r1}" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="${s.o2x}" cy="${s.o2y}" r="${r2}" fill="none" stroke="var(--accent-d)" stroke-width="2"/>`; if(!rel.same){ svg+=`<line x1="${s.o1x}" y1="${s.o1y}" x2="${s.o2x}" y2="${s.o2y}" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4 4"/>`; svg+=tinyLabel(fmtLen(d),(s.o1x+s.o2x)/2,(s.o1y+s.o2y)/2-6,'#475569'); svg+=ctrlPoint(s.o1x,s.o1y,'O1','var(--accent)')+tinyLabel('O₁',s.o1x-14,s.o1y+16,'#334155'); svg+=ctrlPoint(s.o2x,s.o2y,'O2','var(--accent-d)')+tinyLabel('O₂',s.o2x+15,s.o2y+16,'#334155'); } else { svg+=ctrlPoint(s.o1x,s.o1y,'O1','var(--accent-d)')+tinyLabel('O₁≡O₂',s.o1x+14,s.o1y+16,'#334155','start'); } return svg;},
+         info:s=>{const r1=48,r2=36,d=pxDist(s.o1x,s.o1y,s.o2x,s.o2y); const rel=circlesAt(d,r1,r2); let dText=rel.same?'0':fmtLen(d); if(!rel.same && dText==='0') dText=(Math.round(d/20*100)/100).toFixed(2).replace('.',','); return [`d = ${dText}; r₁ = ${fmtLen(r1)}; r₂ = ${fmtLen(r2)}`, rel.text];}
         },
-        {t:'note', h:'Диаметър, перпендикулярен на хорда', b:`Диаметър, който е перпендикулярен на хорда, я разполовява. Обратно: диаметър, който минава през средата на хорда, е перпендикулярен на хордата.`},
+        {t:'note', h:'Диаметър, перпендикулярен на хорда', b:`Диаметър, който е перпендикулярен на хорда, я разполовява. Обратно: диаметър, който минава през средата на хорда, която не е диаметър, е перпендикулярен на хордата.`},
         {t:'fig_dyn', cap:'Диаметър, перпендикулярен на хорда. Премести O или хордата.',
          state:{ ox:150,oy:92,cy:122 },
          handles:s=>[{id:'O',x:s.ox,y:s.oy},{id:'H',x:s.ox,y:s.cy}],
@@ -2451,48 +2527,35 @@ const THEMES = [
         },
         {t:'fig_dyn', cap:'Ортоцентър (H) и Височини.', 
          state: { ax: 50, ay: 160, bx: 250, by: 160, cx: 100, cy: 30 },
-         handles: s => [
-             { id: 'A', x: s.ax, y: s.ay }, { id: 'B', x: s.bx, y: s.by }, { id: 'C', x: s.cx, y: s.cy }
-         ],
+         handles: s => {
+             const L=orthoFit(s);
+             return [{ id: 'A', x: L.X(s.ax), y: L.Y(s.ay) }, { id: 'B', x: L.X(s.bx), y: L.Y(s.by) }, { id: 'C', x: L.X(s.cx), y: L.Y(s.cy) }];
+         },
          update: (s, id, x, y) => {
-             if (id === 'A') { s.ax = x; s.ay = y; }
-             if (id === 'B') { s.bx = x; s.by = y; }
-             if (id === 'C') { s.cx = x; s.cy = y; }
+             const L=orthoFit(s), lx=L.invX(x), ly=L.invY(y);
+             if (id === 'A') { s.ax = lx; s.ay = ly; }
+             if (id === 'B') { s.bx = lx; s.by = ly; }
+             if (id === 'C') { s.cx = lx; s.cy = ly; }
          },
          draw: s => {
-             let svg = `<polygon points="${s.ax},${s.ay} ${s.bx},${s.by} ${s.cx},${s.cy}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>`;
-             
-             // Изчисляване на ортоцентъра
-             const getAltPoint = (x1, y1, x2, y2, x3, y3) => {
-                 const dx = x3 - x2, dy = y3 - y2;
-                 const k = ((x1 - x2)*dx + (y1 - y2)*dy) / (dx*dx + dy*dy);
-                 return { x: x2 + k*dx, y: y2 + k*dy };
-             };
-             const hA = getAltPoint(s.ax, s.ay, s.bx, s.by, s.cx, s.cy);
-             const hB = getAltPoint(s.bx, s.by, s.ax, s.ay, s.cx, s.cy);
-             
-             // Ортоцентър (пресечна точка на две височини)
-             const den = (hA.x - s.ax)*(hB.y - s.bx) - (hA.y - s.ay)*(hB.x - s.bx);
-             let hx, hy;
-             if (Math.abs(s.ay - s.by) < 1) { // Ако AB е хоризонтална
-                 hx = s.cx;
-                 hy = s.ay - ((s.bx - s.cx)*(s.cx - s.ax)) / (s.ay - s.cy);
-             } else {
-                // Използваме формула за ортоцентър чрез координати
-                const a = s.ax, b = s.ay, c = s.bx, d = s.by, e = s.cx, f = s.cy;
-                hx = (b*c*e - a*d*e - b*c*c + a*c*d - a*b*f + a*a*f + b*d*f - b*b*f) / (a*d - b*c - a*f + b*e + c*f - d*e);
-                hy = - (a*a*c - a*c*c + a*b*d - b*c*d - a*a*e + c*c*e - b*d*e + d*d*e - a*d*f + b*c*f + a*e*f - c*e*f) / (a*d - b*c - a*f + b*e + c*f - d*e);
+             const L=orthoFit(s), X=L.X, Y=L.Y;
+             let svg = `<polygon points="${X(s.ax)},${Y(s.ay)} ${X(s.bx)},${Y(s.by)} ${X(s.cx)},${Y(s.cy)}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>`;
+             if(L.H){
+                 const alt=(vx,vy,ox,oy,px,py)=>{
+                     const dx=px-ox, dy=py-oy, len=Math.hypot(dx,dy)||1, ux=-dy/len, uy=dx/len;
+                     const t=(L.H.x-vx)*ux+(L.H.y-vy)*uy;
+                     const t1=Math.min(0,t)-16, t2=Math.max(0,t)+16;
+                     return `<line x1="${X(vx+ux*t1)}" y1="${Y(vy+uy*t1)}" x2="${X(vx+ux*t2)}" y2="${Y(vy+uy*t2)}" stroke="var(--accent-d)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+                 };
+                 svg += alt(s.ax,s.ay,s.bx,s.by,s.cx,s.cy);
+                 svg += alt(s.bx,s.by,s.ax,s.ay,s.cx,s.cy);
+                 svg += alt(s.cx,s.cy,s.ax,s.ay,s.bx,s.by);
+                 svg += `<circle cx="${X(L.H.x)}" cy="${Y(L.H.y)}" r="4" fill="#0f766e"/><text x="${X(L.H.x)+8}" y="${Y(L.H.y)-5}" font-size="10" font-weight="bold" fill="#0f766e">H</text>`;
              }
-
-             svg += `<line x1="${s.ax}" y1="${s.ay}" x2="${hx}" y2="${hy}" stroke="var(--accent-d)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
-             svg += `<line x1="${s.bx}" y1="${s.by}" x2="${hx}" y2="${hy}" stroke="var(--accent-d)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
-             svg += `<line x1="${s.cx}" y1="${s.cy}" x2="${hx}" y2="${hy}" stroke="var(--accent-d)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
              
-             svg += `<circle cx="${hx}" cy="${hy}" r="4" fill="#0f766e"/><text x="${hx+8}" y="${hy-5}" font-size="10" font-weight="bold" fill="#0f766e">H</text>`;
-             
-             svg += `<circle cx="${s.ax}" cy="${s.ay}" r="4" fill="var(--accent-d)" class="ctrl-pt" data-id="A"/><text x="${s.ax-15}" y="${s.ay+15}" font-size="10">A</text>`;
-             svg += `<circle cx="${s.bx}" cy="${s.by}" r="4" fill="var(--accent-d)" class="ctrl-pt" data-id="B"/><text x="${s.bx+10}" y="${s.by+15}" font-size="10">B</text>`;
-             svg += `<circle cx="${s.cx}" cy="${s.cy}" r="4" fill="var(--accent-d)" class="ctrl-pt" data-id="C"/><text x="${s.cx}" y="${s.cy-12}" text-anchor="middle" font-size="10">C</text>`;
+             svg += `<circle cx="${X(s.ax)}" cy="${Y(s.ay)}" r="4" fill="var(--accent-d)" class="ctrl-pt" data-id="A"/><text x="${X(s.ax)-15}" y="${Y(s.ay)+15}" font-size="10">A</text>`;
+             svg += `<circle cx="${X(s.bx)}" cy="${Y(s.by)}" r="4" fill="var(--accent-d)" class="ctrl-pt" data-id="B"/><text x="${X(s.bx)+10}" y="${Y(s.by)+15}" font-size="10">B</text>`;
+             svg += `<circle cx="${X(s.cx)}" cy="${Y(s.cy)}" r="4" fill="var(--accent-d)" class="ctrl-pt" data-id="C"/><text x="${X(s.cx)}" y="${Y(s.cy)-12}" text-anchor="middle" font-size="10">C</text>`;
              return svg;
          }
         },
@@ -2564,7 +2627,7 @@ const THEMES = [
          },
          info:s=>{ const label=['Iₐ','Iᵦ','Iᶜ'][s.which]; const side=['BC','AC','AB'][s.which]; return [`${label} е центърът. Окръжността се допира до страната ${side} в точка T и до продълженията на другите две страни.`]; }
         },
-        {t:'note', h:'Права на Ойлер', b:`Във всеки триъгълник <b>Ортоцентърът (H)</b>, <b>Медицентърът (M)</b> и <b>Центърът на описаната окръжност (O)</b> лежат на една права, наречена <span class="hl">Права на Ойлер</span>.<br>При това $HM = 2 \\cdot MO$.<br><i>*При равнобедрен триъгълник и четирите точки лежат на оста на симетрия. При равностранен триъгълник четирите точки съвпадат!</i>`},
+        {t:'note', h:'Права на Ойлер', b:`Във всеки неравностранен триъгълник <b>ортоцентърът (H)</b>, <b>медицентърът (M)</b> и <b>центърът на описаната окръжност (O)</b> лежат на една права, наречена <span class="hl">права на Ойлер</span>.<br>При това $HM = 2 \\cdot MO$.<br>При равнобедрен триъгълник тези точки лежат на оста на симетрия.<br>При равностранен триъгълник медицентърът, ортоцентърът, центърът на вписаната и центърът на описаната окръжност съвпадат.`},
         {t:'fig_dyn', cap:'Права на Ойлер. Премести върховете.', 
          state: { ax: 40, ay: 150, bx: 220, by: 160, cx: 180, cy: 30 },
          handles: s => [
@@ -2618,7 +2681,7 @@ const THEMES = [
              return svg;
          }
         },
-        {t:'note', h:'Четириъгълник, вписан в окръжност', b:`<b>О:</b> Четириъгълник е <span class="hl">вписан</span> в окръжност, ако върховете му лежат на една окръжност.<br>• <b>НДУ:</b> $ABCD$ е вписан $\\Longleftrightarrow \\angle A+\\angle C=180^\\circ$ и $\\angle B+\\angle D=180^\\circ$.<br>• <b>НДУ:</b> Една страна се вижда от другите два върха под равни ъгли $\\Longleftrightarrow$ четириъгълникът е вписан.<br>• <b>НДУ:</b> Симетралите на три страни се пресичат в една точка $\\Longleftrightarrow$ четириъгълникът е вписан.`},
+        {t:'note', h:'Четириъгълник, вписан в окръжност', b:`<b>О:</b> Ако върховете на четириъгълник лежат на една окръжност, той се нарича <span class="hl">вписан</span> в окръжността. Окръжността е описана около четириъгълника.<br>• <b>НДУ:</b> Четириъгълник е вписан в окръжност тогава и само тогава, когато сборът на два срещуположни ъгъла е $180^\\circ$: $\\angle A+\\angle C=\\angle B+\\angle D=180^\\circ$.<br>• <b>О:</b> Ако $\\angle AMB=\\alpha$, казваме, че отсечката $AB$ се вижда под ъгъл $\\alpha$ от точката $M$.<br>• <b>НДУ:</b> Четириъгълник е вписан в окръжност тогава и само тогава, когато някоя от страните му се вижда под един и същ ъгъл от другите два върха, които лежат в една полуравнина относно тази страна.<br>• <b>НДУ:</b> Симетралите на страните му се пресичат в една точка тогава и само тогава, когато четириъгълникът е вписан.<br>• <b>НДУ:</b> Успоредник е вписан в окръжност тогава и само тогава, когато е правоъгълник.<br>• <b>НДУ:</b> Трапец е вписан в окръжност тогава и само тогава, когато е равнобедрен.`},
 
         {t:'fig_dyn', cap:'Вписан четириъгълник. Премести върховете по окръжността.',
          state:{ ox:150, oy:92, aA:2.65, aB:4.05, aC:5.55, aD:0.55 },
@@ -2627,7 +2690,7 @@ const THEMES = [
          draw:s=>{const r=58, pts=['A','B','C','D'].map(k=>({id:k,x:s.ox+r*Math.cos(s['a'+k]),y:s.oy+r*Math.sin(s['a'+k])})); let svg=`<g class="geom-simple"><circle cx="${s.ox}" cy="${s.oy}" r="${r}" fill="none" stroke="var(--accent)" stroke-width="1.7"/>`; svg+=`<polygon points="${pts.map(p=>`${p.x},${p.y}`).join(' ')}" fill="var(--accent-soft)" stroke="var(--accent-d)" stroke-width="1.6"/>`; pts.forEach(p=>{svg+=ctrlPoint(p.x,p.y,p.id)+tinyLabel(p.id,p.x+11,p.y+4,'#334155');}); svg+=ctrlPoint(s.ox,s.oy,'O','var(--accent-d)')+tinyLabel('O',s.ox-12,s.oy+15,'#334155'); return svg+`</g>`;},
          info:s=>[`всички върхове лежат на една окръжност`]
         },
-        {t:'note', h:'Четириъгълник, описан около окръжност', b:`<b>О:</b> Четириъгълник е <span class="hl">описан</span> около окръжност, ако страните му се допират до една окръжност.<br>• <b>НДУ:</b> Четириъгълник е описан около окръжност тогава и само тогава, когато ъглополовящите на ъглите му се пресичат в една точка.<br>• <b>НДУ:</b> Четириъгълник е описан около окръжност тогава и само тогава, когато сборът на две срещуположни страни е равен на сбора на другите две: $AB+CD=AD+BC$.`},
+        {t:'note', h:'Четириъгълник, описан около окръжност', b:`<b>О:</b> Четириъгълник, на който страните се допират до една окръжност, се нарича <span class="hl">описан</span> около окръжността. Окръжността се нарича вписана в четириъгълника.<br>• <b>НДУ:</b> Четириъгълник е описан около окръжност тогава и само тогава, когато ъглополовящите на ъглите му се пресичат в една точка.<br>• <b>НДУ:</b> Изпъкнал четириъгълник е описан около окръжност тогава и само тогава, когато сборовете на дължините на срещуположните му страни са равни: $AB+CD=AD+BC$.<br>• <b>НДУ:</b> Равнобедрен трапец е описан около окръжност тогава и само тогава, когато средната му отсечка е равна на бедрото му.`},
         {t:'fig_dyn', cap:'Описан четириъгълник. Премести върховете — окръжността остава вписана.', 
          state: { ox: 150, oy: 92, t0: -2.15, t1: -0.35, t2: 0.95, t3: 2.55 },
          handles: s => {
@@ -2667,7 +2730,7 @@ const THEMES = [
          info:s=>[`окръжността се допира до четирите страни`]
         },
     ]
-},,
+},
 
 
 
@@ -2682,7 +2745,7 @@ const THEMES = [
             <section class="map-sheet print-card-break"><h3>Алгебра, числа и комбинаторика</h3><div class="map-sheet-grid">
                 <div class="map-topic topic-blue"><h4>Числови множества</h4><p><span class="statement"><b>О.</b> Рационално число се нарича число, което може да се представи във вида $\dfrac{p}{q}$, където $p,q\in\mathbb Z$ и $q\ne0$.</span><span class="statement"><b>О.</b> Ирационално число се нарича реално число, което не е рационално.</span></p><p class="formula-row"><span class="map-formula">$\mathbb N\subset\mathbb Z\subset\mathbb Q\subset\mathbb R$</span></p><p class="formula-row"><span class="map-formula">$\mathbb R=\mathbb Q\cup I$</span> <span class="map-formula">$\mathbb Q\cap I=\varnothing$</span></p></div>
                 <div class="map-topic topic-green"><h4>Квадратен корен</h4><p><span class="statement"><b>О.</b> Аритметичен квадратен корен от неотрицателно число $a$ се нарича неотрицателното число $b$, за което $b^2=a$.</span></p><p class="formula-row"><span class="map-formula">$\sqrt a=b\Longleftrightarrow b^2=a,\ b\ge0$</span></p><p><span class="statement"><b>С.</b> За $a\ge0$, $b\ge0$ и $c\gt0$ са в сила свойствата:</span></p><p class="formula-row"><span class="map-formula">$\sqrt{a^2}=|a|$</span> <span class="map-formula">$\sqrt{ab}=\sqrt a\sqrt b$</span> <span class="map-formula">$\sqrt{\dfrac ac}=\dfrac{\sqrt a}{\sqrt c}$</span></p></div>
-                <div class="map-topic topic-yellow"><h4>Рационализиране</h4><p><span class="statement"><b>О.</b> Рационализиране на знаменател се нарича преобразуване, при което в знаменателя не остава квадратен корен.</span></p><p class="formula-row"><span class="map-formula">$\dfrac1{\sqrt a}=\dfrac{\sqrt a}{a}\ (a&gt;0)$</span></p><p class="formula-row"><span class="map-formula">$\dfrac1{\sqrt a+\sqrt b}=\dfrac{\sqrt a-\sqrt b}{a-b}\ (a\ne b)$</span></p><p class="formula-row"><span class="map-formula">$\dfrac1{\sqrt a-\sqrt b}=\dfrac{\sqrt a+\sqrt b}{a-b}\ (a\ne b)$</span></p></div>
+                <div class="map-topic topic-yellow"><h4>Рационализиране</h4><p><span class="statement"><b>О.</b> Рационализиране на знаменател се нарича преобразуване, при което в знаменателя не остава квадратен корен.</span></p><p class="formula-row"><span class="map-formula">$\dfrac1{\sqrt a}=\dfrac{\sqrt a}{a}\ (a&gt;0)$</span></p><p class="formula-row"><span class="map-formula">$\dfrac1{\sqrt a+\sqrt b}=\dfrac{\sqrt a-\sqrt b}{a-b}\ (a\ge0,\ b\ge0,\ a\ne b)$</span></p><p class="formula-row"><span class="map-formula">$\dfrac1{\sqrt a-\sqrt b}=\dfrac{\sqrt a+\sqrt b}{a-b}\ (a\ge0,\ b\ge0,\ a\ne b)$</span></p></div>
                 <div class="map-topic topic-pink"><h4>Квадратно уравнение</h4><p><span class="statement"><b>О.</b> Квадратно уравнение се нарича уравнение от вида $ax^2+bx+c=0$, където $a\ne0$.</span></p><p class="formula-row"><span class="map-formula">$D=b^2-4ac$</span> <span class="map-formula">$x_{1,2}=\dfrac{-b\pm\sqrt D}{2a}$</span></p><p><span class="statement"><b>Т.</b> Ако $D\gt0$, уравнението има два различни реални корена.</span><span class="statement"><b>Т.</b> Ако $D=0$, уравнението има един двоен реален корен.</span><span class="statement"><b>Т.</b> Ако $D\lt0$, уравнението няма реални корени.</span></p></div>
                 <div class="map-topic topic-purple"><h4>Виет и тричлен</h4><p><span class="statement"><b>Т.</b> Ако $x_1$ и $x_2$ са корени на $ax^2+bx+c=0$, то:</span></p><p class="formula-row"><span class="map-formula">$x_1+x_2=-\dfrac ba$</span> <span class="map-formula">$x_1x_2=\dfrac ca$</span></p><p><span class="statement"><b>Т.</b> При $D\gt0$: $ax^2+bx+c=a(x-x_1)(x-x_2)$.</span><span class="statement"><b>Т.</b> При $D=0$: $ax^2+bx+c=a(x-x_0)^2$.</span><span class="statement"><b>Т.</b> При $D\lt0$ квадратният тричлен няма линейно разлагане в $\mathbb R$.</span></p></div>
                 <div class="map-topic topic-orange"><h4>Комбинаторика</h4><p><span class="statement"><b>О.</b> Пермутация без повторение от $n$ елемента се нарича наредба на всички елементи.</span><span class="statement"><b>Ф.</b> <span class="map-formula">$P_n=n(n-1)(n-2)\cdots2\cdot1$</span> <span class="map-formula">$P_n=n!$</span></span><span class="statement"><b>О.</b> Вариация без повторение от $n$ елемента $k$-ти клас се нарича наредена извадка от $k$ различни елемента.</span><span class="statement"><b>Ф.</b> <span class="map-formula">$V_n^k=n(n-1)\cdots(n-k+1)$</span> <span class="map-formula">$V_n^k=\dfrac{n!}{(n-k)!}$</span></span><span class="statement"><b>О.</b> Комбинация без повторение от $n$ елемента $k$-ти клас се нарича ненаредена извадка от $k$ различни елемента.</span><span class="statement"><b>Ф.</b> <span class="map-formula">$C_n^k=\dfrac{V_n^k}{k!}$</span> <span class="map-formula">$C_n^k=\dfrac{n(n-1)\cdots(n-k+1)}{k!}$</span> <span class="map-formula">$C_n^k=\dfrac{n!}{k!(n-k)!}$</span></span></p></div>
@@ -2728,7 +2791,8 @@ const THEMES = [
                     <p><b>О.</b> Ако $|r_1-r_2|&lt;d&lt;r_1+r_2$, окръжностите се пресичат.</p>
                     <p><b>О.</b> Ако $d=|r_1-r_2|$, окръжностите се допират вътрешно.</p>
                     <p><b>О.</b> Ако $0&lt;d&lt;|r_1-r_2|$, едната окръжност лежи във вътрешността на другата.</p>
-                    <p><b>О.</b> Ако $d=0$, окръжностите са концентрични.</p>
+                    <p><b>О.</b> Ако $d=0$ и $r_1\ne r_2$, окръжностите са концентрични и нямат общи точки.</p>
+                    <p><b>О.</b> Ако $d=0$ и $r_1=r_2$, окръжностите съвпадат.</p>
                     <p><b>Т.</b> Допирателните, построени от една външна точка към окръжност, са равни.</p>
                 </div></div>
                 <div class="map-topic topic-green wide"><h4>Забележителни точки</h4><div class="claim-grid">
@@ -2739,8 +2803,8 @@ const THEMES = [
                     <div class="claim"><b>Външен център Iₐ</b><svg class="geo-svg" viewBox="0 0 150 98"><defs><pattern id="kZ5" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#e2e8f0" stroke-width="0.5"/></pattern></defs><rect width="150" height="98" fill="url(#kZ5)"/><polygon points="40,66 112,66 76,22" class="green"/><line x1="14" y1="66" x2="138" y2="66" class="aux"/><line x1="40" y1="66" x2="15" y2="96" class="aux"/><line x1="112" y1="66" x2="137" y2="96" class="aux"/><line x1="76" y1="22" x2="76" y2="92" class="aux"/><line x1="40" y1="66" x2="76" y2="92" class="aux"/><line x1="112" y1="66" x2="76" y2="92" class="aux"/><circle class="ptr" cx="76" cy="92" r="2"/><text class="lbl" x="82" y="89">Iₐ</text></svg><p><span class="statement"><b>Т.</b> Една вътрешна и две външни ъглополовящи на триъгълника се пресичат в една точка.</span><span class="statement"><b>О.</b> Тази точка е център на външно вписана окръжност.</span></p><ul><li>Всеки триъгълник има три външно вписани окръжности.</li><li>Външно вписаната окръжност се допира до една страна на триъгълника и до продълженията на другите две страни.</li></ul></div>
                 </div></div>
                 <div class="map-topic topic-yellow full"><h4>Вписани и описани четириъгълници</h4><div class="q-grid">
-                    <div><svg class="geo-svg" viewBox="0 0 160 112"><defs><pattern id="kQ1" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#e2e8f0" stroke-width="0.5"/></pattern></defs><rect width="160" height="112" fill="url(#kQ1)"/><circle cx="80" cy="56" r="40" class="blue"/><polygon points="49,82 44,33 94,19 120,64" class="green"/><line x1="49" y1="82" x2="94" y2="19" class="aux"/><line x1="44" y1="33" x2="120" y2="64" class="aux"/><circle class="ptg" cx="49" cy="82" r="2"/><circle class="ptg" cx="44" cy="33" r="2"/><circle class="ptg" cx="94" cy="19" r="2"/><circle class="ptg" cx="120" cy="64" r="2"/><text class="tiny" x="31" y="15">∠A + ∠C = 180°</text><text class="lbl" x="43" y="96">A</text><text class="lbl" x="35" y="31">B</text><text class="lbl" x="96" y="17">C</text><text class="lbl" x="124" y="68">D</text></svg><p><span class="statement"><b>О.</b> Вписан четириъгълник се нарича четириъгълник, чиито върхове лежат на една окръжност.</span></p><ol class="logic-list"><li>Четириъгълник е вписан в окръжност тогава и само тогава, когато сборът на два негови срещуположни ъгъла е $180^\circ$.</li><li>Четириъгълник е вписан в окръжност тогава и само тогава, когато една негова страна се вижда от другите два върха под равни ъгли.</li><li>Четириъгълник е вписан в окръжност тогава и само тогава, когато симетралите на страните му се пресичат в една точка.</li></ol></div>
-                    <div><svg class="geo-svg" viewBox="0 0 160 112"><defs><pattern id="kQ2" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#e2e8f0" stroke-width="0.5"/></pattern></defs><rect width="160" height="112" fill="url(#kQ2)"/><circle cx="80" cy="58" r="26" class="orange"/><polygon points="68.4,26.1 120.7,45.2 83.5,98.3 47.5,62.3" class="green"/><circle class="ptr" cx="80" cy="58" r="2"/><circle class="ptg" cx="57.5" cy="45" r="2"/><circle class="ptg" cx="88.9" cy="33.6" r="2"/><circle class="ptg" cx="101.3" cy="72.9" r="2"/><circle class="ptg" cx="61.6" cy="76.4" r="2"/><line x1="68.4" y1="26.1" x2="80" y2="58" class="aux"/><line x1="120.7" y1="45.2" x2="80" y2="58" class="aux"/><line x1="83.5" y1="98.3" x2="80" y2="58" class="aux"/><text class="tiny" x="54" y="17">a + c = b + d</text></svg><p><span class="statement"><b>О.</b> Описан около окръжност четириъгълник се нарича четириъгълник, чиито страни се допират до една окръжност.</span></p><ol class="logic-list"><li>Четириъгълник е описан около окръжност тогава и само тогава, когато ъглополовящите на ъглите му се пресичат в една точка.</li><li>Четириъгълник е описан около окръжност тогава и само тогава, когато сборът на две срещуположни страни е равен на сбора на другите две страни, т.е. $AB+CD=AD+BC$.</li></ol></div>
+                    <div><svg class="geo-svg" viewBox="0 0 160 112"><defs><pattern id="kQ1" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#e2e8f0" stroke-width="0.5"/></pattern></defs><rect width="160" height="112" fill="url(#kQ1)"/><circle cx="80" cy="56" r="40" class="blue"/><polygon points="49,82 44,33 94,19 120,64" class="green"/><line x1="49" y1="82" x2="94" y2="19" class="aux"/><line x1="44" y1="33" x2="120" y2="64" class="aux"/><circle class="ptg" cx="49" cy="82" r="2"/><circle class="ptg" cx="44" cy="33" r="2"/><circle class="ptg" cx="94" cy="19" r="2"/><circle class="ptg" cx="120" cy="64" r="2"/><text class="tiny" x="31" y="15">∠A + ∠C = 180°</text><text class="lbl" x="43" y="96">A</text><text class="lbl" x="35" y="31">B</text><text class="lbl" x="96" y="17">C</text><text class="lbl" x="124" y="68">D</text></svg><p><span class="statement"><b>О.</b> Вписан четириъгълник се нарича четириъгълник, чиито върхове лежат на една окръжност.</span></p><ol class="logic-list"><li>Четириъгълник е вписан в окръжност тогава и само тогава, когато сборът на два негови срещуположни ъгъла е $180^\circ$.</li><li>Четириъгълник е вписан в окръжност тогава и само тогава, когато някоя от страните му се вижда под един и същ ъгъл от другите два върха, които лежат в една полуравнина относно тази страна.</li><li>Четириъгълник е вписан в окръжност тогава и само тогава, когато симетралите на страните му се пресичат в една точка.</li><li>Успоредник е вписан в окръжност тогава и само тогава, когато е правоъгълник.</li><li>Трапец е вписан в окръжност тогава и само тогава, когато е равнобедрен.</li></ol></div>
+                    <div><svg class="geo-svg" viewBox="0 0 160 112"><defs><pattern id="kQ2" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#e2e8f0" stroke-width="0.5"/></pattern></defs><rect width="160" height="112" fill="url(#kQ2)"/><circle cx="80" cy="58" r="26" class="orange"/><polygon points="68.4,26.1 120.7,45.2 83.5,98.3 47.5,62.3" class="green"/><circle class="ptr" cx="80" cy="58" r="2"/><circle class="ptg" cx="57.5" cy="45" r="2"/><circle class="ptg" cx="88.9" cy="33.6" r="2"/><circle class="ptg" cx="101.3" cy="72.9" r="2"/><circle class="ptg" cx="61.6" cy="76.4" r="2"/><line x1="68.4" y1="26.1" x2="80" y2="58" class="aux"/><line x1="120.7" y1="45.2" x2="80" y2="58" class="aux"/><line x1="83.5" y1="98.3" x2="80" y2="58" class="aux"/><text class="tiny" x="54" y="17">a + c = b + d</text></svg><p><span class="statement"><b>О.</b> Описан около окръжност четириъгълник се нарича четириъгълник, чиито страни се допират до една окръжност.</span></p><ol class="logic-list"><li>Четириъгълник е описан около окръжност тогава и само тогава, когато ъглополовящите на ъглите му се пресичат в една точка.</li><li>Изпъкнал четириъгълник е описан около окръжност тогава и само тогава, когато сборовете на дължините на срещуположните му страни са равни: $AB+CD=AD+BC$.</li><li>Равнобедрен трапец е описан около окръжност тогава и само тогава, когато средната му отсечка е равна на бедрото му.</li></ol></div>
                 </div></div>
             </div></section>
         </div>`}
